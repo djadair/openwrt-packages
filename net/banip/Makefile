@@ -17,7 +17,9 @@ define Package/banip
 	SECTION:=net
 	CATEGORY:=Network
 	TITLE:=Ban incoming and outgoing ip adresses via ipsets
-	DEPENDS:=+jshn +jsonfilter +ip +ipset +iptables +ca-bundle @BROKEN
+#	DEPENDS:=+jshn +jsonfilter +ip +ipset +iptables +ca-bundle @BROKEN
+# Build without ipset, iptables.  This won't work but makes development easier 
+	DEPENDS:=+jshn +jsonfilter +ip +ca-bundle
 	PKGARCH:=all
 endef
 
@@ -46,7 +48,8 @@ endef
 
 define Package/banip/install
 	$(INSTALL_DIR) $(1)/usr/bin
-	$(INSTALL_BIN) ./files/banip.sh $(1)/usr/bin
+# This is the one file that is iptables dependent.
+#	$(INSTALL_BIN) ./files/banip.sh $(1)/usr/bin
 
 	$(INSTALL_DIR) $(1)/etc/init.d
 	$(INSTALL_BIN) ./files/banip.init $(1)/etc/init.d/banip
