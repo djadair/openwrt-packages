@@ -7,7 +7,7 @@ include $(TOPDIR)/rules.mk
 
 PKG_NAME:=banip
 PKG_VERSION:=0.7.10
-PKG_RELEASE:=6
+PKG_RELEASE:=7
 PKG_LICENSE:=GPL-3.0-or-later
 PKG_MAINTAINER:=Dirk Brenken <dev@brenken.org>
 
@@ -70,6 +70,23 @@ define Package/banip/install
 
 	$(INSTALL_DIR) $(1)/etc/hotplug.d/firewall
 	$(INSTALL_DATA) ./files/banip.hotplug $(1)/etc/hotplug.d/firewall/30-banip
+
+#
+# nft additions.
+#
+# consider $(CP) to make banip.sh a soft-link but that may have permission issue
+	$(INSTALL_BIN)  ./files/nft/banip.sh $(1)/usr/bin
+	$(INSTALL_DIR)  $(1)/usr/share/banip
+	$(INSTALL_BIN)  ./files/nft/banip.uc $(1)/usr/share/banip
+	$(INSTALL_BIN)  ./files/nft/utpcmd.sh $(1)/usr/share/banip
+	$(INSTALL_DATA) ./files/nft/banrules.uc $(1)/usr/share/banip
+	$(INSTALL_DATA) ./files/nft/bansave.uc $(1)/usr/share/banip
+# Module files *could* be in banip dir but this lets things work
+# without the cd e.g. if banip.sh is a soft-link.
+	$(INSTALL_DIR)  $(1)/usr/share/ucode
+	$(INSTALL_DATA) ./files/nft/bancfg.uc $(1)/usr/share/ucode
+	$(INSTALL_DATA) ./files/nft/bansource.uc $(1)/usr/share/ucode
+
 endef
 
 $(eval $(call BuildPackage,banip))
