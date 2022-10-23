@@ -4,6 +4,7 @@ START=82
 STOP=28
 USE_PROCD=1
 UPSMON_C=/var/etc/nut/upsmon.conf
+RUNDIR=/var/run/nut/upsmon
 
 nut_upsmon_conf() {
 	local cfg="$1"
@@ -155,6 +156,11 @@ build_config() {
 	config_foreach nut_upsmon_add master master
 	config_foreach nut_upsmon_add slave slave
 
+	[ ! -d "$RUNDIR" ] && {
+		mkdir -m 770 -p "$RUNDIR"
+		chown "${runas:-nutmon}.$(id -gn ${runas:-nutmon})" "$RUNDIR"
+	}
+	
 	[ ! -s /var/etc/nut/nut.conf ] && {
 		echo "MODE=netclient" >>/var/etc/nut/nut.conf
 		chmod 640 /var/etc/nut/nut.conf
