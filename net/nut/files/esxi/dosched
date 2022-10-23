@@ -1,0 +1,4 @@
+#!/bin/sh
+logger -t upssched "UPS: cmd: ${NOTIFYTYPE} usr: $(id) notice: $1"
+/usr/sbin/upssched $1
+
