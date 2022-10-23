@@ -1,0 +1,75 @@
+Nut config files for shutting down esxi host.
+
+NOTE: This is not fully baked yet.  These files are not packaged or installed
+but simply stashed here for reference.
+
+Strategy is to use a shutdown-only key which is relatively safe to leave
+around since malicious user could only shut down system they are trying to hack.
+Not great for enterprise use but fine for home user or small bussiness.
+
+BIG NOTE:  Proper method for esxi host shutdown is horribly obtuse and confusing
+with all the conflicting information and powershell nonsense on web.  As of
+7.0.3 99% of everything you google is BS.  The /sbin/poweroff command does
+exactly what we require -- run all the configured VM shutdown operations
+then power off the host.
+
+
+Assumptions:
+  - Graceful shutdown is a higher priority than maximum runtime.`
+  - Openwrt is running as an esxi vm.
+  - esxi host has at least some VM's which use NAS as iscsi storage. This
+    in turn implies esxi and openwrt must shut down BEFORE NAS.
+  - NAS is primary nut server.
+  - NAS/UPS shutdown is at 15 minutes.  We want esxi clean shutdown before that.
+  - Local access is possible. See warnings in esxi-shutdown script there
+    is a race condition such that esxi may not power back on in all cases.
+    DO NOT USE VIRTUAL ROUTER IF YOU ARE REMOTE-ONLY.
+  - esxi is configured for auto-shutdown and auto-start of critical VM's.
+  - This is a single-host config, it is shutting down a HOST not a cluster.
+    DO NOT USE THIS METHOD IF YOU HAVE A VSPHERE CLUSTER.  Conceptually a cluster
+    should not be a lot harder but the fact you have one implies your VM's themselves
+    are non-trivial -- time to bite the bullet and start learning powershell.
+
+To avoid running out of battery in case of multiple outages ( for me pretty common
+power is either really reliable or goes on and off several times in a day ) and to
+avoid battery going from low to dead too fast to complete graceful shutdown both
+the NAS and this shutdown process are timed with upssched:
+  10 minutes:  shut down esxi host and vms.
+  15 minutes:  shut down NAS and ups.
+
+My nominal capacity is 60 minutes so I expect to survive 3 outages and a couple
+short glitches as power is restored.  Obviously if more runtime is requried or
+typical "short" outages are longer than 10 minutes then a bigger UPS and different
+timing would be required.
+
+ESXI host setup:
+# create an ssh key for shutdown
+ssh-keygen -t rsa -C "shutdown" -f shutdown_rsa
+
+# openwrt requires key in dropbear format
+dropbearconvert openssh dropbear ./shutdown_rsa ./shutdown_dropbear
+
+# Admin key is optional but to upload more than one key a file
+# is required.  Unlike other options this https api call saves
+# the content in persistent storage.
+cat <<EOF > setkeys
+ssh-rsa <admin key>
+command="/vmfs/volumes/datastore1/commands/shutdown" ssh-rsa < ups shutdown key >
+EOF
+# multi-line content wants binary data
+curl -vv -b "vmware_client=VMware" -u root --insecure -X PUT --data-binary @setkeys https://<esxi ip>/host/ssh_root_authorized_keys
+
+The script should be located on a local datastore.  Notice nohup and short delay
+to give us a chance to return from esxi-shutdown before getting killed.  The object
+is to complete the disconnect from NAS so it does not think we are still alive and
+wait for us.
+
+#!/bin/sh
+# Utility to shut down system.
+
+OFILE=/vmfs/volumes/datastore1/commands/shutdown.log
+
+nohup sh -c 'sleep 5 && echo "Shutting Down" && /sbin/poweroff' 2>&1 >${OFILE} &
+
+echo "Powering Down in 5 seconds"
+

@@ -1,0 +1,107 @@
+#!/bin/sh
+
+CMDNAME="esxi-shutdown"
+ONBATT_FILE="/var/run/nut/upsmon/${CMDNAME}.onbatt"
+SHUTDOWN_FILE="/var/run/nut/upsmon/${CMDNAME}.shutdown"
+FLOCK_FILE="/var/run/nut/upsmon/${CMDNAME}.lock"
+SHUTDOWN_KEY="~/.ssh/shutdown_dropbear"
+ESXI_HOST=172.30.40.14
+
+# Called from nut_monitor upssched to shut down system on
+# UPS critical or timeout.
+
+# We want to make sure that both our instance and the esxi host are
+# shut down before power is lost to avoid corruption at either level.
+# That means we have to give up some of the flexibility to automatically
+# recover, once timeout has expired host power WILL be off and can only
+# be restarted in one of three ways:
+#   - Push power button.
+#   - Send WOL.
+#   - Fully turn off UPS then turn it back on.
+#
+# In the lucky case the last situation will naturally occur but if power
+# returns between the time we start to turn off and the master upsmon
+# has turned off the UPS one of the other opions will be required.
+
+LogCmd() {
+    logger -t ${CMDNAME} "Processing event: $1"
+}
+
+EsxiShutdown() {
+    local tmp=$(uci -q get nut_monitor.esxi_host)
+    if [ -n "${tmp}" ] ; then
+	ESXI_HOST=${tmp}
+    fi
+    LogCmd "host: ${ESXI_HOST},  $(id)"
+
+    if [ ! -f ${SHUTDOWN_FILE} ] &&
+       [ -f ${SHUTDOWN_KEY} ]; then
+	touch ${SHUTDOWN_FILE}
+	logger -t ${CMDNAME} $(ssh -i ~/.ssh/shutdown_dropbear ${ESXI_HOST})
+    fi
+}
+
+{
+flock -x 99
+
+case "$1" in
+online)
+    LogCmd "UPS ONLINE"
+    rm -f ${ONBATT_FILE}
+    ;;
+
+onbatt)
+    LogCmd "UPS ONBATT"
+    touch ${ONBATT_FILE}
+    ;;
+
+# Should never happen but if it does while
+# we are on battery shut down.
+lowbatt)
+    LogCmd "UPS LOWBATT"
+    if [ -f ${ONBATT_FILE} ] ; then
+	/usr/sbin/upsmon -c fsd
+    fi
+    ;;
+
+# Assume loss of comms while on battery
+# means that power is about to go away.
+nocomm)
+    LogCmd "UPS NOCOMM"
+    if [ -f ${ONBATT_FILE} ] ; then
+	/usr/sbin/upsmon -c fsd
+    fi
+    ;;
+
+# Not sure how we get here if timers
+# are working but make sure monitor
+# shuts down so master monitor can exit.
+fsd)
+    LogCmd "UPS fsd requested"
+    /usr/sbin/upsmon -c fsd
+    ;;
+
+# Called directly as shutdown script.
+# 
+shutdown)
+     LogCmd "UPS Monitor shutdown"
+     EsxiShutdown
+     LogCmd "/usr/sbin/nutshutdown"
+     ;;
+
+waittimeup)
+    LogCmd "UPS Battery time exceeded"
+    /usr/sbin/upsmon -c fsd
+    ;;
+
+*)
+    LogCmd "Unknown CMD: $1"
+    ;;
+
+esac
+
+flock -u 99
+} 99>$FLOCK_FILE
+
+rm -f ${FLOCK_FILE}
+
